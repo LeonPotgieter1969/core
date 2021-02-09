@@ -157,7 +157,7 @@ def mock_get_server_version(server_version_side_effect):
 def mock_addon_setup_time():
     """Mock add-on setup sleep time."""
     with patch(
-        "homeassistant.components.zwave_js.config_flow.ADDON_SETUP_TIME", new=0
+        "homeassistant.components.zwave_js.config_flow.ADDON_SETUP_TIMEOUT", new=0
     ) as addon_setup_time:
         yield addon_setup_time
 
@@ -772,11 +772,17 @@ async def test_addon_installed_failures(
     )
 
     assert result["type"] == "form"
-    assert result["step_id"] == "start_addon"
+    assert result["step_id"] == "configure_addon"
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"usb_path": "/test", "network_key": "abc123"}
     )
+
+    assert result["type"] == "progress"
+    assert result["step_id"] == "start_addon"
+
+    await hass.async_block_till_done()
+    result = await hass.config_entries.flow.async_configure(result["flow_id"])
 
     assert result["type"] == "abort"
     assert result["reason"] == abort_reason
@@ -809,11 +815,17 @@ async def test_addon_installed_already_configured(
     )
 
     assert result["type"] == "form"
-    assert result["step_id"] == "start_addon"
+    assert result["step_id"] == "configure_addon"
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"usb_path": "/test", "network_key": "abc123"}
     )
+
+    assert result["type"] == "progress"
+    assert result["step_id"] == "start_addon"
+
+    await hass.async_block_till_done()
+    result = await hass.config_entries.flow.async_configure(result["flow_id"])
 
     assert result["type"] == "abort"
     assert result["reason"] == "already_configured"
@@ -846,6 +858,7 @@ async def test_addon_not_installed(
     )
 
     assert result["type"] == "progress"
+    assert result["step_id"] == "install_addon"
 
     # Make sure the flow continues when the progress task is done.
     await hass.async_block_till_done()
@@ -853,6 +866,13 @@ async def test_addon_not_installed(
     result = await hass.config_entries.flow.async_configure(result["flow_id"])
 
     assert result["type"] == "form"
+    assert result["step_id"] == "configure_addon"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"usb_path": "/test", "network_key": "abc123"}
+    )
+
+    assert result["type"] == "progress"
     assert result["step_id"] == "start_addon"
 
     with patch(
@@ -861,9 +881,8 @@ async def test_addon_not_installed(
         "homeassistant.components.zwave_js.async_setup_entry",
         return_value=True,
     ) as mock_setup_entry:
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"usb_path": "/test", "network_key": "abc123"}
-        )
+        await hass.async_block_till_done()
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
         await hass.async_block_till_done()
 
     assert result["type"] == "create_entry"
